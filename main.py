@@ -1,25 +1,19 @@
 import os
 import time
-import json
 import random
+import json
 from datetime import datetime, timedelta
 from instagrapi import Client
-from google.cloud import aiplatform
+from google import genai
 
 # ===== CONFIG =====
 SESSION_FILE = "session.json"
 LOCK_FILE = "last_post.json"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 
-# ===== SETUP GOOGLE CREDENTIALS =====
-# Load JSON from Railway variable
-credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
-with open("google_credentials.json", "w") as f:
-    f.write(credentials_json)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_credentials.json"
-
-aiplatform.init(project=json.loads(credentials_json)["project_id"], location="us-central1")
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # ===== HASHTAGS & PROMPTS =====
 HASHTAGS = [
@@ -47,25 +41,26 @@ CAPTIONS = [
 def mix_hashtags():
     return " ".join(random.sample(HASHTAGS, 6))
 
-# ===== VEO 3 VIDEO GENERATION (Vertex AI) =====
+# ===== VEO 3 VIDEO GENERATION (Gemini API) =====
 def generate_veo3_video(prompt):
-    print(f"🎬 Generating Veo3 video for: {prompt}")
-    model = "veo-3.0-generate-preview"
-    operation = aiplatform.gapic.PipelineServiceClient().create_training_pipeline(
-        parent=f"projects/{json.loads(credentials_json)['project_id']}/locations/us-central1",
-        training_pipeline={
-            "display_name": "veo3-video-gen",
-            "input_data_config": {},
-            "model_to_upload": {
-                "display_name": prompt,
-                "labels": {}
-            }
-        }
+    print(f"🎬 Generating Veo3 Fast video for: {prompt}")
+    operation = client.models.generate_videos(
+        model="veo-3.0-generate-preview",
+        prompt=prompt,
+        config=genai.types.GenerateVideosConfig(
+            resolution="1080p",
+            generateAudio=True,
+            sampleCount=1
+        )
     )
-    # NOTE: Vertex AI actual video gen is different; using placeholder logic due to limitations
-    # In real-world, you'd call aiplatform.VideoGenerationModel(...)
+    while not operation.done:
+        time.sleep(10)
+        operation = client.operations.get(operation)
+
+    generated = operation.response.generated_videos[0]
     filename = "veo3_clip.mp4"
-    open(filename, "wb").write(b"FAKE_VIDEO_CONTENT")  # placeholder
+    client.files.download(file=generated.video)
+    generated.video.save(filename)
     print(f"✅ Video saved: {filename}")
     return filename
 
