@@ -2,18 +2,18 @@ import os
 import time
 import random
 import json
-import requests
 from datetime import datetime, timedelta
 from instagrapi import Client
+from playwright.sync_api import sync_playwright
 
 # ===== CONFIG =====
 SESSION_FILE = "session.json"
 LOCK_FILE = "last_post.json"
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_EMAIL = os.getenv("GOOGLE_EMAIL")
+GOOGLE_PASSWORD = os.getenv("GOOGLE_PASSWORD")
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 
-# ===== HASHTAGS & PROMPTS =====
 HASHTAGS = [
     "#sad", "#brokenhearts", "#nightvibes", "#relatable", "#heartbroken",
     "#viral", "#fyp", "#explorepage", "#love", "#deepthoughts",
@@ -39,31 +39,46 @@ CAPTIONS = [
 def mix_hashtags():
     return " ".join(random.sample(HASHTAGS, 6))
 
-# ===== VEO 3 VIDEO GENERATION (Direct Gemini API) =====
+# ===== SCRAPE GEMINI TO GENERATE VEO3 VIDEO =====
 def generate_veo3_video(prompt):
-    print(f"🎬 Generating Veo3 Fast video for: {prompt}")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:generateVideo?key={GOOGLE_API_KEY}"
+    print(f"🎬 Scraping Gemini for: {prompt}")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
 
-    payload = {
-        "prompt": prompt,
-        "videoConfig": {
-            "resolution": "1080p",
-            "generateAudio": True
-        }
-    }
+        # Login to Gemini
+        page.goto("https://gemini.google.com/")
+        page.fill("input[type='email']", GOOGLE_EMAIL)
+        page.click("#identifierNext")
+        time.sleep(2)
+        page.fill("input[type='password']", GOOGLE_PASSWORD)
+        page.click("#passwordNext")
+        time.sleep(5)
 
-    response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        video_url = response.json()["videos"][0]["videoUri"]
+        # Go to Veo 3 generator (Gemini Pro video page)
+        page.goto("https://gemini.google.com/app/veo")
+        time.sleep(5)
+
+        # Type prompt and submit
+        page.fill("textarea", prompt)
+        page.keyboard.press("Enter")
+        print("⏳ Waiting for video to generate...")
+        time.sleep(40)  # Wait for Gemini to finish generating
+
+        # Scrape video URL
+        video_element = page.query_selector("video")
+        video_url = video_element.get_attribute("src")
+
+        # Download video
         filename = "veo3_clip.mp4"
-        r = requests.get(video_url)
+        r = context.request.get(video_url)
         with open(filename, "wb") as f:
-            f.write(r.content)
+            f.write(r.body())
         print(f"✅ Video saved: {filename}")
+
+        browser.close()
         return filename
-    else:
-        print(f"❌ Video generation failed: {response.text}")
-        raise Exception("Video generation failed")
 
 # ===== INSTAGRAM UPLOAD =====
 def upload_instagram_reel(video_path, caption):
@@ -108,7 +123,6 @@ def update_last_post_time():
 
 # ===== AUTOMATED LOOP =====
 def run_bot():
-    # Immediate post if allowed
     if can_post_now():
         caption = random.choice(CAPTIONS) + "\\n" + mix_hashtags()
         video = generate_veo3_video(random.choice(PROMPTS))
