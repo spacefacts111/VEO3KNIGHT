@@ -2,15 +2,9 @@ import os
 import time
 import random
 import json
+import requests
 from datetime import datetime, timedelta
 from instagrapi import Client
-import pydantic
-
-# ✅ Patch to fix google-genai + Pydantic v2 "name shadow" error
-if not hasattr(pydantic.BaseModel.Config, "protected_namespaces"):
-    pydantic.BaseModel.Config.protected_namespaces = ()
-
-from google import genai
 
 # ===== CONFIG =====
 SESSION_FILE = "session.json"
@@ -18,8 +12,6 @@ LOCK_FILE = "last_post.json"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
-
-client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # ===== HASHTAGS & PROMPTS =====
 HASHTAGS = [
@@ -47,28 +39,31 @@ CAPTIONS = [
 def mix_hashtags():
     return " ".join(random.sample(HASHTAGS, 6))
 
-# ===== VEO 3 VIDEO GENERATION (Gemini API) =====
+# ===== VEO 3 VIDEO GENERATION (Direct Gemini API) =====
 def generate_veo3_video(prompt):
     print(f"🎬 Generating Veo3 Fast video for: {prompt}")
-    operation = client.models.generate_videos(
-        model="veo-3.0-generate-preview",
-        prompt=prompt,
-        config=genai.types.GenerateVideosConfig(
-            resolution="1080p",
-            generateAudio=True,
-            sampleCount=1
-        )
-    )
-    while not operation.done:
-        time.sleep(10)
-        operation = client.operations.get(operation)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:generateVideo?key={GOOGLE_API_KEY}"
 
-    generated = operation.response.generated_videos[0]
-    filename = "veo3_clip.mp4"
-    client.files.download(file=generated.video)
-    generated.video.save(filename)
-    print(f"✅ Video saved: {filename}")
-    return filename
+    payload = {
+        "prompt": prompt,
+        "videoConfig": {
+            "resolution": "1080p",
+            "generateAudio": True
+        }
+    }
+
+    response = requests.post(url, json=payload)
+    if response.status_code == 200:
+        video_url = response.json()["videos"][0]["videoUri"]
+        filename = "veo3_clip.mp4"
+        r = requests.get(video_url)
+        with open(filename, "wb") as f:
+            f.write(r.content)
+        print(f"✅ Video saved: {filename}")
+        return filename
+    else:
+        print(f"❌ Video generation failed: {response.text}")
+        raise Exception("Video generation failed")
 
 # ===== INSTAGRAM UPLOAD =====
 def upload_instagram_reel(video_path, caption):
