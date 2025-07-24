@@ -4,6 +4,12 @@ import random
 import json
 from datetime import datetime, timedelta
 from instagrapi import Client
+import pydantic
+
+# ✅ Patch to fix google-genai + Pydantic v2 "name shadow" error
+if not hasattr(pydantic.BaseModel.Config, "protected_namespaces"):
+    pydantic.BaseModel.Config.protected_namespaces = ()
+
 from google import genai
 
 # ===== CONFIG =====
@@ -109,7 +115,7 @@ def update_last_post_time():
 def run_bot():
     # Immediate post if allowed
     if can_post_now():
-        caption = random.choice(CAPTIONS) + "\n" + mix_hashtags()
+        caption = random.choice(CAPTIONS) + "\\n" + mix_hashtags()
         video = generate_veo3_video(random.choice(PROMPTS))
         upload_instagram_reel(video, caption)
         update_last_post_time()
@@ -128,7 +134,7 @@ def run_bot():
                 print(f"⏳ Waiting until {t.strftime('%H:%M:%S')} for next post...")
                 time.sleep(wait)
 
-            caption = random.choice(CAPTIONS) + "\n" + mix_hashtags()
+            caption = random.choice(CAPTIONS) + "\\n" + mix_hashtags()
             video = generate_veo3_video(random.choice(PROMPTS))
             upload_instagram_reel(video, caption)
             update_last_post_time()
