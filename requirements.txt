@@ -4,3 +4,4 @@ requests==2.31.0
 instagrapi==1.17.12
 ffmpeg-python==0.2.0
 google-genai
+pydantic==1.10.12
