@@ -68,7 +68,7 @@ def generate_ai_hashtags(caption):
         pass
     return "#sad #brokenhearts #viral #fyp #poetry"
 
-def generate_veo3_video(prompt):
+def generate_veo3_video(prompt, attempt=1):
     log(f"🎬 Starting Veo3 video generation for: {prompt}")
     with sync_playwright() as p:
         try:
@@ -125,11 +125,12 @@ def generate_veo3_video(prompt):
             if i % 10 == 0:
                 log(f"⌛ Still waiting for video... {i*2}s")
         if not video_el:
-            log("❌ No video found after waiting. Retrying once...")
+            log("❌ No video found after waiting.")
             browser.close()
             if attempt == 1:
                 log("🔄 Refreshing page and retrying video generation...")
-                return generate_veo3_video(prompt)
+                log('🔄 Retrying video generation now...')
+                return generate_veo3_video(prompt, attempt=2)
             raise Exception("No video found after retry.")
 
         video_url = video_el.get_attribute("src")
