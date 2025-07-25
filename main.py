@@ -3,9 +3,10 @@ import time
 import random
 import json
 import requests
+import asyncio
 from datetime import datetime, timedelta
 from instagrapi import Client
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 SESSION_FILE = "session.json"
 LOCK_FILE = "last_post.json"
@@ -16,22 +17,6 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 def log(msg):
     print(f"{datetime.now().strftime('%H:%M:%S')} - {msg}", flush=True)
-
-log("🚀 Bot starting... Performing fail-fast checks.")
-
-# Fail-fast early checks
-missing = []
-if not USERNAME: missing.append("IG_USERNAME")
-if not PASSWORD: missing.append("IG_PASSWORD")
-if not GOOGLE_API_KEY: missing.append("GOOGLE_API_KEY")
-if not os.path.exists(SESSION_FILE): missing.append("session.json file")
-if not os.path.exists(COOKIES_FILE): missing.append("cookies.json file")
-
-if missing:
-    log(f"❌ Missing critical requirements: {', '.join(missing)}")
-    raise SystemExit("Stopping container due to missing requirements.")
-
-log("✅ All environment variables and files present. Continuing...")
 
 def generate_ai_caption():
     prompt = (
@@ -68,72 +53,56 @@ def generate_ai_hashtags(caption):
         pass
     return "#sad #brokenhearts #viral #fyp #poetry"
 
-def generate_veo3_video(prompt, attempt=1):
+async def generate_veo3_video(prompt):
     log(f"🎬 Starting Veo3 video generation for: {prompt}")
-    with sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(headless=True)
-        except Exception as e:
-            log(f"❌ Failed to start Chromium: {e}")
-            raise SystemExit("Stopping container due to Playwright failure.")
-        context = browser.new_context()
-        context.add_cookies(json.load(open(COOKIES_FILE)))
-        page = context.new_page()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+        if os.path.exists(COOKIES_FILE):
+            cookies = json.load(open(COOKIES_FILE))
+            await context.add_cookies(cookies)
+
+        page = await context.new_page()
         log("⏳ Loading Veo 3 page...")
-        page.goto("https://gemini.google.com/app/veo")
+        await page.goto("https://gemini.google.com/app/veo")
 
-        for i in range(60):
-            if page.query_selector("textarea") or page.query_selector("div[contenteditable='true']"):
+        # Wait for textarea to be ready
+        for _ in range(60):
+            if await page.query_selector("textarea") or await page.query_selector("div[contenteditable='true']"):
                 break
-            time.sleep(1)
-            log(f"⌛ Waiting for prompt field... {i+1}s")
+            await asyncio.sleep(1)
 
-        typed = False
-        for i in range(40):
-            try:
-                target = page.query_selector("textarea") or page.query_selector("div[contenteditable='true']")
-                if target:
-                    target.click()
-                    page.keyboard.type(prompt, delay=50)
-                    typed = True
-                    break
-            except:
-                time.sleep(1)
-        if not typed:
-            log("❌ Failed to type in Veo 3 prompt field.")
-            raise Exception("Could not type in the prompt field.")
+        # Type the prompt
+        target = await page.query_selector("textarea") or await page.query_selector("div[contenteditable='true']")
+        if not target:
+            await browser.close()
+            raise Exception("❌ Could not find prompt field.")
+        await target.click()
+        await target.type(prompt, delay=50)
 
+        # Click Submit
         log("🖱 Clicking the Submit button...")
-        try:
-            gen_btn = page.query_selector("button:has-text('Submit')") or page.query_selector("button")
-            if gen_btn:
-                gen_btn.click()
-            else:
-                log("⚠️ No Generate button found, pressing Enter as fallback.")
-                page.keyboard.press("Enter")
-        except:
-            log("⚠️ Failed to click, pressing Enter instead.")
-            page.keyboard.press("Enter")
-        log("⏳ Waiting for video generation (up to 5 min)...")
+        gen_btn = await page.query_selector("button:has-text('Submit')")
+        if gen_btn:
+            await gen_btn.click()
+        else:
+            log("⚠️ No Submit button found, pressing Enter.")
+            await page.keyboard.press("Enter")
 
+        # Wait for video
+        log("⏳ Waiting for video generation (up to 5 min)...")
         video_el = None
-        for i in range(150):
-            video_el = page.query_selector("video") or page.query_selector("source")
+        for _ in range(150):
+            video_el = await page.query_selector("video") or await page.query_selector("source")
             if video_el:
                 break
-            time.sleep(2)
-            if i % 10 == 0:
-                log(f"⌛ Still waiting for video... {i*2}s")
-        if not video_el:
-            log("❌ No video found after waiting.")
-            browser.close()
-            if attempt == 1:
-                log("🔄 Refreshing page and retrying video generation...")
-                log('🔄 Retrying video generation now...')
-                return generate_veo3_video(prompt, attempt=2)
-            raise Exception("No video found after retry.")
+            await asyncio.sleep(2)
 
-        video_url = video_el.get_attribute("src")
+        if not video_el:
+            await browser.close()
+            raise Exception("❌ No video found after waiting.")
+
+        video_url = await video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
         raw_file = "veo3_clip" + ext
 
@@ -143,7 +112,7 @@ def generate_veo3_video(prompt, attempt=1):
             f.write(r.content)
 
         log(f"✅ Video ready: {raw_file}")
-        browser.close()
+        await browser.close()
         return raw_file
 
 def upload_instagram_reel(video_path, caption):
@@ -154,21 +123,19 @@ def upload_instagram_reel(video_path, caption):
         cl.get_timeline_feed()
         log("✅ Logged in with saved session.")
     except:
-        log("❌ Session invalid, stopping.")
-        raise SystemExit("Stopping container due to invalid session.")
-
+        raise Exception("❌ Session invalid, generate a new session.json.")
     cl.clip_upload(video_path, caption)
     log("✅ Reel uploaded successfully!")
     if os.path.exists(video_path):
         os.remove(video_path)
         log(f"🗑 Deleted {video_path}")
 
-def run_bot():
+async def run_bot():
     log("☑ Starting immediate test post...")
     caption = generate_ai_caption()
     caption += "\n" + generate_ai_hashtags(caption)
     try:
-        video = generate_veo3_video(caption)
+        video = await generate_veo3_video(caption)
         upload_instagram_reel(video, caption)
     except Exception as e:
         log(f"❌ Test post failed: {e}")
@@ -176,4 +143,4 @@ def run_bot():
     log("✅ Test post done. Entering daily schedule...")
 
 if __name__ == "__main__":
-    run_bot()
+    asyncio.run(run_bot())
