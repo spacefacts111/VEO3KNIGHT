@@ -1,4 +1,3 @@
-
 import os
 import time
 import random
@@ -15,6 +14,7 @@ USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
+# ===== COOKIE VALIDITY CHECK =====
 def check_gemini_cookies():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -30,6 +30,7 @@ def check_gemini_cookies():
         browser.close()
         print("✅ Cookies valid and logged in.")
 
+# ===== AI CAPTIONS & HASHTAGS =====
 def generate_ai_caption():
     prompt = (
         "Write a short, hard-hitting, sad or metaphorical quote that feels viral and relatable. "
@@ -59,6 +60,7 @@ def generate_ai_hashtags(caption):
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
     return "#sad #brokenhearts #viral #fyp #poetry"
 
+# ===== VEO 3 VIDEO GENERATION =====
 def generate_veo3_video(prompt):
     print(f"🎬 Generating Veo3 video for: {prompt}")
     with sync_playwright() as p:
@@ -75,12 +77,19 @@ def generate_veo3_video(prompt):
                 break
             time.sleep(1)
 
-        if page.query_selector("textarea"):
-            page.fill("textarea", prompt)
-        elif page.query_selector("div[contenteditable='true']"):
-            page.fill("div[contenteditable='true']", prompt)
+        # ✅ Retry filling to avoid detached textarea issue
+        for i in range(30):
+            try:
+                if page.query_selector("textarea"):
+                    page.fill("textarea", prompt)
+                    break
+                elif page.query_selector("div[contenteditable='true']"):
+                    page.fill("div[contenteditable='true']", prompt)
+                    break
+            except:
+                time.sleep(1)
         else:
-            raise Exception("❌ Could not find a prompt input field.")
+            raise Exception("❌ Could not fill the prompt field (kept detaching).")
 
         page.keyboard.press("Enter")
         print("⏳ Waiting for video generation...")
@@ -97,14 +106,19 @@ def generate_veo3_video(prompt):
 
         video_url = video_el.get_attribute("src")
         filename = "veo3_clip.mp4"
-        r = requests.get(video_url)
-        with open(filename, "wb") as f:
-            f.write(r.content)
-        print(f"✅ Video saved: {filename}")
+
+        try:
+            r = requests.get(video_url, timeout=60)
+            with open(filename, "wb") as f:
+                f.write(r.content)
+            print(f"✅ Video saved: {filename}")
+        except Exception as e:
+            raise Exception(f"❌ Failed to download video: {e}")
 
         browser.close()
         return filename
 
+# ===== INSTAGRAM UPLOAD =====
 def upload_instagram_reel(video_path, caption):
     print("📤 Uploading to Instagram...")
     cl = Client()
@@ -126,6 +140,7 @@ def upload_instagram_reel(video_path, caption):
         os.remove(video_path)
         print(f"🗑 Deleted {video_path} to save space.")
 
+# ===== LOCK SYSTEM =====
 def can_post_now():
     if not os.path.exists(LOCK_FILE):
         return True
@@ -141,6 +156,7 @@ def update_last_post_time():
     with open(LOCK_FILE, "w") as f:
         json.dump({"last_post": datetime.now().isoformat()}, f)
 
+# ===== RUN BOT =====
 def run_bot():
     check_gemini_cookies()
     if can_post_now():
