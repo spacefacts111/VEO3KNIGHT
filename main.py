@@ -84,7 +84,7 @@ def generate_veo3_video(prompt):
                 target = page.query_selector("textarea") or page.query_selector("div[contenteditable='true']")
                 if target:
                     target.click()
-                    page.keyboard.type(prompt, delay=50)  # ✅ Types naturally
+                    page.keyboard.type(prompt, delay=50)  # ✅ Types naturally like a human
                     typed = True
                     break
             except:
