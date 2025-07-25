@@ -14,6 +14,9 @@ USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
+def log(msg):
+    print(f"{datetime.now().strftime('%H:%M:%S')} - {msg}")
+
 def check_env():
     missing = []
     if not USERNAME: missing.append("IG_USERNAME")
@@ -23,6 +26,7 @@ def check_env():
         raise Exception(f"❌ Missing required environment variables: {', '.join(missing)}")
 
 def check_gemini_cookies():
+    log("Checking Gemini cookies...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
@@ -35,7 +39,7 @@ def check_gemini_cookies():
             browser.close()
             raise Exception("❌ Cookies invalid or expired. Please regenerate cookies.json.")
         browser.close()
-        print("✅ Cookies valid and logged in.")
+        log("✅ Cookies valid and logged in.")
 
 def generate_ai_caption():
     prompt = (
@@ -45,9 +49,12 @@ def generate_ai_caption():
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GOOGLE_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = requests.post(url, json=payload)
-    if r.status_code == 200:
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        r = requests.post(url, json=payload, timeout=20)
+        if r.status_code == 200:
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except:
+        pass
     return random.choice([
         "Some things hurt more in silence.",
         "Rain hides my tears but not my pain."
@@ -61,13 +68,16 @@ def generate_ai_hashtags(caption):
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GOOGLE_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = requests.post(url, json=payload)
-    if r.status_code == 200:
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        r = requests.post(url, json=payload, timeout=20)
+        if r.status_code == 200:
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except:
+        pass
     return "#sad #brokenhearts #viral #fyp #poetry"
 
-def generate_veo3_video(prompt):
-    print(f"🎬 Generating Veo3 video for: {prompt}")
+def generate_veo3_video(prompt, attempt=1):
+    log(f"🎬 Generating Veo3 video (Attempt {attempt}) for: {prompt}")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
@@ -76,7 +86,6 @@ def generate_veo3_video(prompt):
         page = context.new_page()
         page.goto("https://gemini.google.com/app/veo")
 
-        print("⏳ Waiting for prompt input field...")
         for _ in range(60):
             if page.query_selector("textarea") or page.query_selector("div[contenteditable='true']"):
                 break
@@ -95,10 +104,14 @@ def generate_veo3_video(prompt):
                 time.sleep(1)
         if not typed:
             page.screenshot(path="veo3_error_screenshot.png")
+            browser.close()
+            if attempt == 1:
+                log("⚠️ Typing failed, retrying...")
+                return generate_veo3_video(prompt, attempt=2)
             raise Exception("❌ Could not type in the prompt field.")
 
         page.keyboard.press("Enter")
-        print("⏳ Waiting for video generation (up to 5 min)...")
+        log("⏳ Waiting for video generation (up to 5 min)...")
 
         video_el = None
         for _ in range(150):
@@ -108,29 +121,39 @@ def generate_veo3_video(prompt):
             time.sleep(2)
         if not video_el:
             page.screenshot(path="veo3_error_screenshot.png")
+            browser.close()
+            if attempt == 1:
+                log("⚠️ Video not found, retrying...")
+                return generate_veo3_video(prompt, attempt=2)
             raise Exception("❌ No video found after waiting.")
 
         video_url = video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
         raw_file = "veo3_clip" + ext
 
-        print(f"⬇️ Downloading video: {video_url}")
-        r = requests.get(video_url, timeout=120)
-        with open(raw_file, "wb") as f:
-            f.write(r.content)
+        log(f"⬇️ Downloading video: {video_url}")
+        try:
+            r = requests.get(video_url, timeout=120)
+            with open(raw_file, "wb") as f:
+                f.write(r.content)
+        except:
+            if attempt == 1:
+                log("⚠️ Download failed, retrying...")
+                return generate_veo3_video(prompt, attempt=2)
+            raise Exception("❌ Failed to download video.")
 
-        print(f"✅ Video ready: {raw_file}")
+        log(f"✅ Video ready: {raw_file}")
         browser.close()
         return raw_file
 
 def upload_instagram_reel(video_path, caption):
-    print("📤 Uploading to Instagram...")
+    log("📤 Uploading to Instagram...")
     cl = Client()
     if os.path.exists(SESSION_FILE):
         try:
             cl.load_settings(SESSION_FILE)
             cl.get_timeline_feed()
-            print("✅ Logged in with saved session.")
+            log("✅ Logged in with saved session.")
         except:
             os.remove(SESSION_FILE)
             raise Exception("❌ Session invalid. Generate a new session.json.")
@@ -138,10 +161,10 @@ def upload_instagram_reel(video_path, caption):
         raise Exception("❌ No session.json found. Generate it first.")
 
     cl.clip_upload(video_path, caption)
-    print("✅ Reel uploaded successfully!")
+    log("✅ Reel uploaded successfully!")
     if os.path.exists(video_path):
         os.remove(video_path)
-        print(f"🗑 Deleted {video_path}")
+        log(f"🗑 Deleted {video_path}")
 
 def can_post_now():
     if not os.path.exists(LOCK_FILE):
@@ -158,10 +181,12 @@ def update_last_post_time():
         json.dump({"last_post": datetime.now().isoformat()}, f)
 
 def run_bot():
+    log("☑ Starting bot...")
     check_env()
     check_gemini_cookies()
 
-    # Test Post
+    # Immediate Test Post
+    log("☑ Starting immediate test post...")
     caption = generate_ai_caption()
     caption += "\n" + generate_ai_hashtags(caption)
     try:
@@ -169,11 +194,11 @@ def run_bot():
         upload_instagram_reel(video, caption)
         update_last_post_time()
     except Exception as e:
-        print(f"❌ Test post failed: {e}")
+        log(f"❌ Test post failed: {e}")
 
-    print("⏳ Starting daily schedule...")
+    log("⏳ Starting daily schedule...")
     while True:
-        posts_today = random.randint(1, 2)  # ✅ Only 1-2 posts per day after test
+        posts_today = random.randint(1, 2)
         post_times = sorted([
             datetime.now() + timedelta(hours=random.randint(1, 12))
             for _ in range(posts_today)
@@ -181,7 +206,7 @@ def run_bot():
         for t in post_times:
             wait = (t - datetime.now()).total_seconds()
             if wait > 0:
-                print(f"⏳ Waiting until {t.strftime('%H:%M:%S')} for next post...")
+                log(f"⏳ Waiting until {t.strftime('%H:%M:%S')} for next post...")
                 time.sleep(wait)
             caption = generate_ai_caption()
             caption += "\n" + generate_ai_hashtags(caption)
@@ -190,8 +215,8 @@ def run_bot():
                 upload_instagram_reel(video, caption)
                 update_last_post_time()
             except Exception as e:
-                print(f"❌ Post failed: {e}")
-        print("✅ Finished today's posts. Waiting for tomorrow...")
+                log(f"❌ Post failed: {e}")
+        log("✅ Finished today's posts. Waiting for tomorrow...")
         time.sleep(86400)
 
 if __name__ == "__main__":
