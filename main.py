@@ -105,21 +105,21 @@ def generate_veo3_video(prompt, attempt=1):
 
         log("🤖 Checking if Veo 3 is already generating...")
         try:
-            # Check if generation is already in progress
-        generating = page.query_selector("text=Generating") or page.query_selector("div:has-text('Generating')")
-        if generating:
-            log("🔴 Already generating, skipping Submit click.")
-            gen_btn = None
-        else:
-            log("🖱 Clicking the Submit button...")
-            gen_btn = (
+                    # Check if generation is already in progress
+                generating = page.query_selector("text=Generating") or page.query_selector("div:has-text('Generating')")
+                if generating:
+                        log("🔴 Already generating, skipping Submit click.")
+                        gen_btn = None
+                else:
+                        log("🖱 Clicking the Submit button...")
+                        gen_btn = (
                 page.query_selector("button:has-text('Submit')") or 
                 page.query_selector("button:has-text('Generate')") or 
                 page.query_selector("button")
             )
             if gen_btn:
                 gen_btn.click()
-            else:
+                    else:
                 log("⚠️ No Generate button found, pressing Enter as fallback.")
                 page.keyboard.press("Enter")
         except:
