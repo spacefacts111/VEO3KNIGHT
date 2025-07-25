@@ -103,7 +103,7 @@ def generate_veo3_video(prompt, attempt=1):
             log("❌ Failed to type in Veo 3 prompt field.")
             raise Exception("Could not type in the prompt field.")
 
-        log("🖱 Clicking the Generate button...")
+        log("🖱 Clicking the Submit button...")
         try:
             gen_btn = page.query_selector("button:has-text('Submit')") or page.query_selector("button")
             if gen_btn:
