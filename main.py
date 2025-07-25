@@ -3,7 +3,6 @@ import time
 import random
 import json
 import requests
-import subprocess
 from datetime import datetime, timedelta
 from instagrapi import Client
 from playwright.sync_api import sync_playwright
@@ -15,7 +14,14 @@ USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# ===== COOKIE VALIDITY CHECK =====
+def check_env():
+    missing = []
+    if not USERNAME: missing.append("IG_USERNAME")
+    if not PASSWORD: missing.append("IG_PASSWORD")
+    if not GOOGLE_API_KEY: missing.append("GOOGLE_API_KEY")
+    if missing:
+        raise Exception(f"❌ Missing required environment variables: {', '.join(missing)}")
+
 def check_gemini_cookies():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -31,7 +37,6 @@ def check_gemini_cookies():
         browser.close()
         print("✅ Cookies valid and logged in.")
 
-# ===== AI CAPTIONS & HASHTAGS =====
 def generate_ai_caption():
     prompt = (
         "Write a short, hard-hitting, sad or metaphorical quote that feels viral and relatable. "
@@ -61,7 +66,6 @@ def generate_ai_hashtags(caption):
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
     return "#sad #brokenhearts #viral #fyp #poetry"
 
-# ===== VEO 3 VIDEO GENERATION (FIXED) =====
 def generate_veo3_video(prompt):
     print(f"🎬 Generating Veo3 video for: {prompt}")
     with sync_playwright() as p:
@@ -73,66 +77,52 @@ def generate_veo3_video(prompt):
         page.goto("https://gemini.google.com/app/veo")
 
         print("⏳ Waiting for prompt input field...")
-        for i in range(60):
+        for _ in range(60):
             if page.query_selector("textarea") or page.query_selector("div[contenteditable='true']"):
                 break
             time.sleep(1)
 
         typed = False
-        for i in range(40):
+        for _ in range(40):
             try:
                 target = page.query_selector("textarea") or page.query_selector("div[contenteditable='true']")
                 if target:
                     target.click()
-                    page.keyboard.type(prompt, delay=50)  # ✅ Types naturally like a human
+                    page.keyboard.type(prompt, delay=50)
                     typed = True
                     break
             except:
                 time.sleep(1)
-
         if not typed:
             page.screenshot(path="veo3_error_screenshot.png")
-            raise Exception("❌ Could not type in the prompt field. Screenshot saved.")
+            raise Exception("❌ Could not type in the prompt field.")
 
         page.keyboard.press("Enter")
         print("⏳ Waiting for video generation (up to 5 min)...")
 
         video_el = None
-        for i in range(150):
+        for _ in range(150):
             video_el = page.query_selector("video") or page.query_selector("source")
             if video_el:
                 break
             time.sleep(2)
-
         if not video_el:
             page.screenshot(path="veo3_error_screenshot.png")
-            raise Exception("❌ No video found. Screenshot saved: veo3_error_screenshot.png")
+            raise Exception("❌ No video found after waiting.")
 
         video_url = video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
-        raw_file = "veo3_raw" + ext
+        raw_file = "veo3_clip" + ext
 
         print(f"⬇️ Downloading video: {video_url}")
         r = requests.get(video_url, timeout=120)
         with open(raw_file, "wb") as f:
             f.write(r.content)
 
-        final_file = "veo3_clip.mp4"
-        if ext == ".webm":
-            print("🔄 Converting WEBM to MP4 for Instagram...")
-            subprocess.run([
-                "ffmpeg", "-i", raw_file, "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-r", "30", "-y", final_file
-            ])
-            os.remove(raw_file)
-        else:
-            os.rename(raw_file, final_file)
-
-        print(f"✅ Video ready: {final_file}")
+        print(f"✅ Video ready: {raw_file}")
         browser.close()
-        return final_file
+        return raw_file
 
-# ===== INSTAGRAM UPLOAD =====
 def upload_instagram_reel(video_path, caption):
     print("📤 Uploading to Instagram...")
     cl = Client()
@@ -143,25 +133,22 @@ def upload_instagram_reel(video_path, caption):
             print("✅ Logged in with saved session.")
         except:
             os.remove(SESSION_FILE)
-            print("⚠️ Session corrupted, regenerating...")
-    if not os.path.exists(SESSION_FILE):
-        cl.login(USERNAME, PASSWORD)
-        cl.dump_settings(SESSION_FILE)
-        print("✅ New session saved.")
+            raise Exception("❌ Session invalid. Generate a new session.json.")
+    else:
+        raise Exception("❌ No session.json found. Generate it first.")
+
     cl.clip_upload(video_path, caption)
     print("✅ Reel uploaded successfully!")
     if os.path.exists(video_path):
         os.remove(video_path)
-        print(f"🗑 Deleted {video_path} to save space.")
+        print(f"🗑 Deleted {video_path}")
 
-# ===== LOCK SYSTEM =====
 def can_post_now():
     if not os.path.exists(LOCK_FILE):
         return True
     try:
         with open(LOCK_FILE, "r") as f:
-            data = json.load(f)
-        last_time = datetime.fromisoformat(data.get("last_post"))
+            last_time = datetime.fromisoformat(json.load(f).get("last_post"))
         return datetime.now() - last_time > timedelta(hours=6)
     except:
         return True
@@ -170,18 +157,23 @@ def update_last_post_time():
     with open(LOCK_FILE, "w") as f:
         json.dump({"last_post": datetime.now().isoformat()}, f)
 
-# ===== RUN BOT =====
 def run_bot():
+    check_env()
     check_gemini_cookies()
-    if can_post_now():
-        caption = generate_ai_caption()
-        caption += "\n" + generate_ai_hashtags(caption)
+
+    # Test Post
+    caption = generate_ai_caption()
+    caption += "\n" + generate_ai_hashtags(caption)
+    try:
         video = generate_veo3_video(caption)
         upload_instagram_reel(video, caption)
         update_last_post_time()
+    except Exception as e:
+        print(f"❌ Test post failed: {e}")
+
     print("⏳ Starting daily schedule...")
     while True:
-        posts_today = random.randint(1, 3)
+        posts_today = random.randint(1, 2)  # ✅ Only 1-2 posts per day after test
         post_times = sorted([
             datetime.now() + timedelta(hours=random.randint(1, 12))
             for _ in range(posts_today)
@@ -193,9 +185,12 @@ def run_bot():
                 time.sleep(wait)
             caption = generate_ai_caption()
             caption += "\n" + generate_ai_hashtags(caption)
-            video = generate_veo3_video(caption)
-            upload_instagram_reel(video, caption)
-            update_last_post_time()
+            try:
+                video = generate_veo3_video(caption)
+                upload_instagram_reel(video, caption)
+                update_last_post_time()
+            except Exception as e:
+                print(f"❌ Post failed: {e}")
         print("✅ Finished today's posts. Waiting for tomorrow...")
         time.sleep(86400)
 
