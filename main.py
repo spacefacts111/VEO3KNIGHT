@@ -3,6 +3,7 @@ import time
 import random
 import json
 import requests
+import subprocess
 from datetime import datetime, timedelta
 from instagrapi import Client
 from playwright.sync_api import sync_playwright
@@ -14,6 +15,7 @@ USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
+# ===== COOKIE VALIDITY CHECK =====
 def check_gemini_cookies():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -29,6 +31,7 @@ def check_gemini_cookies():
         browser.close()
         print("✅ Cookies valid and logged in.")
 
+# ===== AI CAPTIONS & HASHTAGS =====
 def generate_ai_caption():
     prompt = (
         "Write a short, hard-hitting, sad or metaphorical quote that feels viral and relatable. "
@@ -58,6 +61,7 @@ def generate_ai_hashtags(caption):
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
     return "#sad #brokenhearts #viral #fyp #poetry"
 
+# ===== VEO 3 VIDEO GENERATION (FIXED) =====
 def generate_veo3_video(prompt):
     print(f"🎬 Generating Veo3 video for: {prompt}")
     with sync_playwright() as p:
@@ -74,7 +78,6 @@ def generate_veo3_video(prompt):
                 break
             time.sleep(1)
 
-        # Retry filling to avoid detachment
         for i in range(30):
             try:
                 if page.query_selector("textarea"):
@@ -90,53 +93,44 @@ def generate_veo3_video(prompt):
             raise Exception("❌ Could not fill the prompt field. Screenshot saved.")
 
         page.keyboard.press("Enter")
-        print("⏳ Waiting for generated content (up to 5 min)...")
+        print("⏳ Waiting for video generation (up to 5 min)...")
 
         video_el = None
-        for i in range(150):  # 5 min max
-            video_el = (
-                page.query_selector("video")
-                or page.query_selector("source")
-                or page.query_selector("canvas")
-                or page.query_selector("img")
-            )
+        for i in range(150):
+            video_el = page.query_selector("video") or page.query_selector("source")
             if video_el:
                 break
             time.sleep(2)
 
         if not video_el:
             page.screenshot(path="veo3_error_screenshot.png")
-            raise Exception("❌ No playable content found. Screenshot saved: veo3_error_screenshot.png")
+            raise Exception("❌ No video found. Screenshot saved: veo3_error_screenshot.png")
 
-        # Determine content type
         video_url = video_el.get_attribute("src")
-        if not video_url and "canvas" in video_el.evaluate("el.tagName").lower():
-            print("⚠️ Canvas detected — screenshotting instead of video.")
-            video_file = "veo3_clip.png"
-            page.screenshot(path=video_file)
-            return video_file
+        ext = ".mp4" if ".mp4" in video_url else ".webm"
+        raw_file = "veo3_raw" + ext
 
-        if not video_url and "img" in video_el.evaluate("el.tagName").lower():
-            print("⚠️ Image detected — downloading instead of video.")
-            video_url = video_el.get_attribute("src")
-            video_file = "veo3_clip.jpg"
-            r = requests.get(video_url, timeout=60)
-            with open(video_file, "wb") as f:
-                f.write(r.content)
-            return video_file
+        print(f"⬇️ Downloading video: {video_url}")
+        r = requests.get(video_url, timeout=120)
+        with open(raw_file, "wb") as f:
+            f.write(r.content)
 
-        filename = "veo3_clip.mp4"
-        try:
-            r = requests.get(video_url, timeout=60)
-            with open(filename, "wb") as f:
-                f.write(r.content)
-            print(f"✅ Video saved: {filename}")
-            return filename
-        except Exception as e:
-            raise Exception(f"❌ Failed to download content: {e}")
+        final_file = "veo3_clip.mp4"
+        if ext == ".webm":
+            print("🔄 Converting WEBM to MP4 for Instagram...")
+            subprocess.run([
+                "ffmpeg", "-i", raw_file, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-r", "30", "-y", final_file
+            ])
+            os.remove(raw_file)
+        else:
+            os.rename(raw_file, final_file)
 
+        print(f"✅ Video ready: {final_file}")
         browser.close()
+        return final_file
 
+# ===== INSTAGRAM UPLOAD =====
 def upload_instagram_reel(video_path, caption):
     print("📤 Uploading to Instagram...")
     cl = Client()
@@ -158,6 +152,7 @@ def upload_instagram_reel(video_path, caption):
         os.remove(video_path)
         print(f"🗑 Deleted {video_path} to save space.")
 
+# ===== LOCK SYSTEM =====
 def can_post_now():
     if not os.path.exists(LOCK_FILE):
         return True
@@ -173,6 +168,7 @@ def update_last_post_time():
     with open(LOCK_FILE, "w") as f:
         json.dump({"last_post": datetime.now().isoformat()}, f)
 
+# ===== RUN BOT =====
 def run_bot():
     check_gemini_cookies()
     if can_post_now():
