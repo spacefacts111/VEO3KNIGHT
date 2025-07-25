@@ -89,20 +89,22 @@ def generate_veo3_video(prompt):
             except:
                 time.sleep(1)
         else:
-            raise Exception("❌ Could not fill the prompt field (kept detaching).")
+            page.screenshot(path="veo3_error_screenshot.png")
+            raise Exception("❌ Could not fill the prompt field (kept detaching). Screenshot saved.")
 
         page.keyboard.press("Enter")
-        print("⏳ Waiting for video generation...")
+        print("⏳ Waiting for video generation (up to 5 minutes)...")
 
-        for i in range(120):
-            video_el = page.query_selector("video")
+        video_el = None
+        for i in range(150):  # ~5 minutes
+            video_el = page.query_selector("video") or page.query_selector("source")
             if video_el:
                 break
             time.sleep(2)
 
-        video_el = page.query_selector("video")
         if not video_el:
-            raise Exception("❌ Video generation failed (no video element found).")
+            page.screenshot(path="veo3_error_screenshot.png")
+            raise Exception("❌ Video generation failed (no video element found). Screenshot saved: veo3_error_screenshot.png")
 
         video_url = video_el.get_attribute("src")
         filename = "veo3_clip.mp4"
