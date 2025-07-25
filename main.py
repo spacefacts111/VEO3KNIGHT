@@ -105,7 +105,11 @@ def generate_veo3_video(prompt, attempt=1):
 
         log("🖱 Clicking the Generate button...")
         try:
-            gen_btn = page.query_selector("button:has-text('Generate')") or page.query_selector("button")
+            gen_btn = (
+            page.query_selector("button:has-text('Generate')") or 
+            page.query_selector("button:has-text('Submit')") or 
+            page.query_selector("button")
+        )
             if gen_btn:
                 gen_btn.click()
             else:
