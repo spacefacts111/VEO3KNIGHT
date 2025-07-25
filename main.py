@@ -1,3 +1,4 @@
+
 import os
 import time
 import random
@@ -14,7 +15,21 @@ USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# ===== AI CAPTIONS & HASHTAGS =====
+def check_gemini_cookies():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        if os.path.exists(COOKIES_FILE):
+            context.add_cookies(json.load(open(COOKIES_FILE)))
+        page = context.new_page()
+        page.goto("https://gemini.google.com/app/veo")
+        time.sleep(5)
+        if "accounts.google.com" in page.url:
+            browser.close()
+            raise Exception("❌ Cookies invalid or expired. Please regenerate cookies.json.")
+        browser.close()
+        print("✅ Cookies valid and logged in.")
+
 def generate_ai_caption():
     prompt = (
         "Write a short, hard-hitting, sad or metaphorical quote that feels viral and relatable. "
@@ -44,22 +59,16 @@ def generate_ai_hashtags(caption):
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
     return "#sad #brokenhearts #viral #fyp #poetry"
 
-# ===== VEO 3 VIDEO GENERATION (FIXED) =====
 def generate_veo3_video(prompt):
     print(f"🎬 Generating Veo3 video for: {prompt}")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
-
-        # Load cookies
         if os.path.exists(COOKIES_FILE):
-            cookies = json.load(open(COOKIES_FILE))
-            context.add_cookies(cookies)
-
+            context.add_cookies(json.load(open(COOKIES_FILE)))
         page = context.new_page()
         page.goto("https://gemini.google.com/app/veo")
 
-        # ✅ Wait up to 60s for input field
         print("⏳ Waiting for prompt input field...")
         for i in range(60):
             if page.query_selector("textarea") or page.query_selector("div[contenteditable='true']"):
@@ -76,7 +85,6 @@ def generate_veo3_video(prompt):
         page.keyboard.press("Enter")
         print("⏳ Waiting for video generation...")
 
-        # ✅ Wait up to 120s for video
         for i in range(120):
             video_el = page.query_selector("video")
             if video_el:
@@ -97,11 +105,9 @@ def generate_veo3_video(prompt):
         browser.close()
         return filename
 
-# ===== INSTAGRAM UPLOAD =====
 def upload_instagram_reel(video_path, caption):
     print("📤 Uploading to Instagram...")
     cl = Client()
-
     if os.path.exists(SESSION_FILE):
         try:
             cl.load_settings(SESSION_FILE)
@@ -110,20 +116,16 @@ def upload_instagram_reel(video_path, caption):
         except:
             os.remove(SESSION_FILE)
             print("⚠️ Session corrupted, regenerating...")
-
     if not os.path.exists(SESSION_FILE):
         cl.login(USERNAME, PASSWORD)
         cl.dump_settings(SESSION_FILE)
         print("✅ New session saved.")
-
     cl.clip_upload(video_path, caption)
     print("✅ Reel uploaded successfully!")
-
     if os.path.exists(video_path):
         os.remove(video_path)
         print(f"🗑 Deleted {video_path} to save space.")
 
-# ===== POST LOCK SYSTEM =====
 def can_post_now():
     if not os.path.exists(LOCK_FILE):
         return True
@@ -139,16 +141,14 @@ def update_last_post_time():
     with open(LOCK_FILE, "w") as f:
         json.dump({"last_post": datetime.now().isoformat()}, f)
 
-# ===== BOT RUNNER =====
 def run_bot():
-    # Immediate first post
+    check_gemini_cookies()
     if can_post_now():
         caption = generate_ai_caption()
         caption += "\n" + generate_ai_hashtags(caption)
         video = generate_veo3_video(caption)
         upload_instagram_reel(video, caption)
         update_last_post_time()
-
     print("⏳ Starting daily schedule...")
     while True:
         posts_today = random.randint(1, 3)
