@@ -103,7 +103,17 @@ def generate_veo3_video(prompt):
             log("❌ Failed to type in Veo 3 prompt field.")
             raise Exception("Could not type in the prompt field.")
 
-        page.keyboard.press("Enter")
+        log("🖱 Clicking the Generate button...")
+        try:
+            gen_btn = page.query_selector("button:has-text('Generate')") or page.query_selector("button")
+            if gen_btn:
+                gen_btn.click()
+            else:
+                log("⚠️ No Generate button found, pressing Enter as fallback.")
+                page.keyboard.press("Enter")
+        except:
+            log("⚠️ Failed to click, pressing Enter instead.")
+            page.keyboard.press("Enter")
         log("⏳ Waiting for video generation (up to 5 min)...")
 
         video_el = None
@@ -115,8 +125,12 @@ def generate_veo3_video(prompt):
             if i % 10 == 0:
                 log(f"⌛ Still waiting for video... {i*2}s")
         if not video_el:
-            log("❌ No video found after waiting.")
-            raise Exception("No video found.")
+            log("❌ No video found after waiting. Retrying once...")
+            browser.close()
+            if attempt == 1:
+                log("🔄 Refreshing page and retrying video generation...")
+                return generate_veo3_video(prompt)
+            raise Exception("No video found after retry.")
 
         video_url = video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
