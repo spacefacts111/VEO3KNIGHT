@@ -78,19 +78,21 @@ def generate_veo3_video(prompt):
                 break
             time.sleep(1)
 
-        for i in range(30):
+        typed = False
+        for i in range(40):
             try:
-                if page.query_selector("textarea"):
-                    page.fill("textarea", prompt)
-                    break
-                elif page.query_selector("div[contenteditable='true']"):
-                    page.fill("div[contenteditable='true']", prompt)
+                target = page.query_selector("textarea") or page.query_selector("div[contenteditable='true']")
+                if target:
+                    target.click()
+                    page.keyboard.type(prompt, delay=50)  # ✅ Types naturally
+                    typed = True
                     break
             except:
                 time.sleep(1)
-        else:
+
+        if not typed:
             page.screenshot(path="veo3_error_screenshot.png")
-            raise Exception("❌ Could not fill the prompt field. Screenshot saved.")
+            raise Exception("❌ Could not type in the prompt field. Screenshot saved.")
 
         page.keyboard.press("Enter")
         print("⏳ Waiting for video generation (up to 5 min)...")
