@@ -20,9 +20,9 @@ def log(msg):
 def upload_screenshot(file_path, label=""):
     try:
         with open(file_path, "rb") as f:
-            r = requests.post("https://0x0.st", files={"file": f})
+            r = requests.post("https://file.io", files={"file": f})
         if r.status_code == 200:
-            link = r.text.strip()
+            link = r.json().get("link", "")
             log(f"📸 Screenshot uploaded {label}: {link}")
             return link
         else:
@@ -97,26 +97,35 @@ async def generate_veo3_video(prompt):
         await page.screenshot(path=before_file)
         upload_screenshot(before_file, "(before clicking send)")
 
-        # Click the REAL send button (paper-plane)
         log("🤖 Clicking Veo 3 send button...")
         clicked = False
-        for attempt in range(5):
+        for attempt in range(3):
             try:
                 send_btn = await page.query_selector("button[aria-label='Send message']")
                 if send_btn:
-                    log(f"🖱 Clicking send button attempt {attempt+1}...")
+                    log(f"🖱 Hovering + clicking send button attempt {attempt+1}...")
+                    await send_btn.hover()
                     await send_btn.click(force=True)
                     await asyncio.sleep(2)
+                    # Double click if no response
+                    if not (await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')")):
+                        log("⚠️ No generating state, trying double click...")
+                        await send_btn.dblclick()
+                        await asyncio.sleep(2)
                     if await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')"):
                         log("✅ Generating detected!")
                         clicked = True
                         break
             except Exception as e:
-                log(f"⚠️ Send button issue ({attempt+1}/5): {e}")
+                log(f"⚠️ Send button issue ({attempt+1}/3): {e}")
             await asyncio.sleep(1)
 
         if not clicked:
-            log("⚠️ Send button might not have triggered, but continuing to wait anyway.")
+            log("⚠️ Still not triggered, pressing Shift+Enter as final backup...")
+            try:
+                await page.keyboard.press("Shift+Enter")
+            except:
+                log("⚠️ Shift+Enter backup failed.")
 
         # Screenshot AFTER clicking
         after_file = "veo3_after_click.png"
