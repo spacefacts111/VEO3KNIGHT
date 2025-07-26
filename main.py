@@ -17,13 +17,13 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 def log(msg):
     print(f"{datetime.now().strftime('%H:%M:%S')} - {msg}", flush=True)
 
-def upload_screenshot(file_path):
+def upload_screenshot(file_path, label=""):
     try:
         with open(file_path, "rb") as f:
             r = requests.post("https://uguu.se/api.php?d=upload-tool", files={"file": f})
         if r.status_code == 200:
             link = r.text.strip()
-            log(f"📸 Screenshot uploaded: {link}")
+            log(f"📸 Screenshot uploaded {label}: {link}")
             return link
     except Exception as e:
         log(f"⚠️ Screenshot upload failed: {e}")
@@ -90,10 +90,10 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Smarter button logic
-        log("🤖 Trying to start video generation...")
+        # Continuous retry for clicking
+        log("🤖 Trying to start video generation (will retry for 30s)...")
         clicked = False
-        for attempt in range(2):
+        for attempt in range(30):
             try:
                 gen_btn = (
                     await page.query_selector("button:has-text('Submit')") or
@@ -102,15 +102,22 @@ async def generate_veo3_video(prompt):
                 )
                 if gen_btn:
                     log(f"🖱 Clicking button attempt {attempt+1}...")
-                    await gen_btn.click()
+                    await gen_btn.click(force=True)
                     await asyncio.sleep(2)
                     if await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')"):
                         log("✅ Generating detected!")
                         clicked = True
                         break
             except:
-                log(f"⚠️ Button issue, retrying... ({attempt+1}/2)")
-                await asyncio.sleep(1)
+                log(f"⚠️ Button issue, retrying... ({attempt+1}/30)")
+            
+            # Take screenshot every 5 attempts
+            if attempt % 5 == 0:
+                screenshot_file = f"veo3_click_retry{attempt+1}.png"
+                await page.screenshot(path=screenshot_file)
+                upload_screenshot(screenshot_file, f"(attempt {attempt+1})")
+
+            await asyncio.sleep(1)
 
         if not clicked:
             try:
@@ -120,10 +127,10 @@ async def generate_veo3_video(prompt):
                 log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
                 await page.keyboard.press("Enter")
 
-        # Screenshot after clicking
+        # Final screenshot after clicking
         screenshot_file = "veo3_after_click.png"
         await page.screenshot(path=screenshot_file)
-        upload_screenshot(screenshot_file)
+        upload_screenshot(screenshot_file, "(final after click)")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
