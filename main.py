@@ -90,47 +90,20 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Continuous retry for clicking
-        log("🤖 Trying to start video generation (will retry for 30s)...")
-        clicked = False
-        for attempt in range(30):
-            try:
-                gen_btn = (
-                    await page.query_selector("button:has-text('Submit')") or
-                    await page.query_selector("div[role='button']") or
-                    await page.query_selector("button")
-                )
-                if gen_btn:
-                    log(f"🖱 Clicking button attempt {attempt+1}...")
-                    await gen_btn.click(force=True)
-                    await asyncio.sleep(2)
-                    if await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')"):
-                        log("✅ Generating detected!")
-                        clicked = True
-                        break
-            except:
-                log(f"⚠️ Button issue, retrying... ({attempt+1}/30)")
-            
-            # Take screenshot every 5 attempts
-            if attempt % 5 == 0:
-                screenshot_file = f"veo3_click_retry{attempt+1}.png"
-                await page.screenshot(path=screenshot_file)
-                upload_screenshot(screenshot_file, f"(attempt {attempt+1})")
+        # HUMAN-LIKE INTERACTION: Tab + Enter
+        log("🤖 Acting human: Tab then Enter...")
+        try:
+            await page.keyboard.press("Tab")
+            await asyncio.sleep(0.5)
+            await page.keyboard.press("Enter")
+        except:
+            log("⚠️ Tab+Enter failed, trying Shift+Enter...")
+            await page.keyboard.press("Shift+Enter")
 
-            await asyncio.sleep(1)
-
-        if not clicked:
-            try:
-                log("⚠️ No generating state detected, trying Shift+Enter...")
-                await page.keyboard.press("Shift+Enter")
-            except:
-                log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
-                await page.keyboard.press("Enter")
-
-        # Final screenshot after clicking
+        # Screenshot after pressing Enter
         screenshot_file = "veo3_after_click.png"
         await page.screenshot(path=screenshot_file)
-        upload_screenshot(screenshot_file, "(final after click)")
+        upload_screenshot(screenshot_file, "(after pressing Enter)")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
