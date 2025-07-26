@@ -1,5 +1,4 @@
 import os
-import os
 import time
 import random
 import json
@@ -79,24 +78,24 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Smarter button logic
+        # Smarter button logic with Playwright locator
         log("🤖 Trying to start video generation...")
-        gen_btn = (
-            await page.query_selector("button:has-text('Submit')") or
-            await page.query_selector("div[role='button']") or
-            await page.query_selector("button")
-        )
-
-        if gen_btn:
-            log("🖱 Clicking the button to generate video...")
-            await gen_btn.click()
-        else:
+        try:
+            await page.locator("button:has-text('Submit')").first.wait_for(state="visible", timeout=3000)
+            log("🖱 Clicking the Submit button with locator...")
+            await page.locator("button:has-text('Submit')").first.click()
+        except:
             try:
-                log("⚠️ No button found, trying Shift+Enter...")
-                await page.keyboard.press("Shift+Enter")
+                log("⚠️ No stable Submit button, trying any visible button...")
+                await page.locator("button").first.wait_for(state="visible", timeout=3000)
+                await page.locator("button").first.click()
             except:
-                log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
-                await page.keyboard.press("Enter")
+                try:
+                    log("⚠️ No clickable button, trying Shift+Enter...")
+                    await page.keyboard.press("Shift+Enter")
+                except:
+                    log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
+                    await page.keyboard.press("Enter")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
