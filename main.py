@@ -4,12 +4,11 @@ import random
 import json
 import requests
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from instagrapi import Client
 from playwright.async_api import async_playwright
 
 SESSION_FILE = "session.json"
-LOCK_FILE = "last_post.json"
 COOKIES_FILE = "cookies.json"
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
@@ -66,13 +65,12 @@ async def generate_veo3_video(prompt):
         log("⏳ Loading Veo 3 page...")
         await page.goto("https://gemini.google.com/app/veo")
 
-        # Wait for textarea to be ready
+        # Wait for textarea
         for _ in range(60):
             if await page.query_selector("textarea") or await page.query_selector("div[contenteditable='true']"):
                 break
             await asyncio.sleep(1)
 
-        # Type the prompt
         target = await page.query_selector("textarea") or await page.query_selector("div[contenteditable='true']")
         if not target:
             await browser.close()
@@ -80,7 +78,6 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Click Submit
         log("🖱 Clicking the Submit button...")
         gen_btn = await page.query_selector("button:has-text('Submit')")
         if gen_btn:
@@ -89,7 +86,6 @@ async def generate_veo3_video(prompt):
             log("⚠️ No Submit button found, pressing Enter.")
             await page.keyboard.press("Enter")
 
-        # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
         video_el = None
         for _ in range(150):
