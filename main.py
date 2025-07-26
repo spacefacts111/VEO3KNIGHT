@@ -78,10 +78,10 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Smarter button logic: re-query until stable
+        # Smarter button logic with double click + wait for generating state
         log("🤖 Trying to start video generation...")
         clicked = False
-        for attempt in range(5):
+        for attempt in range(2):
             try:
                 gen_btn = (
                     await page.query_selector("button:has-text('Submit')") or
@@ -91,15 +91,19 @@ async def generate_veo3_video(prompt):
                 if gen_btn:
                     log(f"🖱 Clicking button attempt {attempt+1}...")
                     await gen_btn.click()
-                    clicked = True
-                    break
+                    await asyncio.sleep(2)  # wait for UI update
+                    # Check if "Generating" appeared
+                    if await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')"):
+                        log("✅ Generating detected!")
+                        clicked = True
+                        break
             except:
-                log(f"⚠️ Button detached, retrying... ({attempt+1}/5)")
+                log(f"⚠️ Button issue, retrying... ({attempt+1}/2)")
                 await asyncio.sleep(1)
 
         if not clicked:
             try:
-                log("⚠️ No clickable button, trying Shift+Enter...")
+                log("⚠️ No generating state detected, trying Shift+Enter...")
                 await page.keyboard.press("Shift+Enter")
             except:
                 log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
