@@ -20,9 +20,9 @@ def log(msg):
 def upload_screenshot(file_path, label=""):
     try:
         with open(file_path, "rb") as f:
-            r = requests.post("https://file.io", files={"file": f})
+            r = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f})
         if r.status_code == 200:
-            link = r.json().get("link", "")
+            link = r.json().get("data", {}).get("url", "")
             log(f"📸 Screenshot uploaded {label}: {link}")
             return link
         else:
@@ -79,6 +79,18 @@ async def generate_veo3_video(prompt):
         log("⏳ Loading Veo 3 page...")
         await page.goto("https://gemini.google.com/app/veo")
 
+        # Select "Video" mode first
+        log("🎥 Selecting Video mode...")
+        for _ in range(30):
+            video_btn = await page.query_selector("button:has-text('Video')")
+            if video_btn:
+                await video_btn.hover()
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+                await video_btn.click()
+                log("✅ Video mode selected.")
+                break
+            await asyncio.sleep(1)
+
         # Wait for textarea
         for _ in range(60):
             if await page.query_selector("textarea") or await page.query_selector("div[contenteditable='true']"):
@@ -89,14 +101,19 @@ async def generate_veo3_video(prompt):
         if not target:
             await browser.close()
             raise Exception("❌ Could not find prompt field.")
+
+        # Human-like typing
         await target.click()
-        await target.type(prompt, delay=50)
+        for ch in prompt:
+            await target.type(ch, delay=random.uniform(50, 120))
+        await asyncio.sleep(random.uniform(0.5, 1.5))
 
         # Screenshot BEFORE clicking
         before_file = "veo3_before_click.png"
         await page.screenshot(path=before_file)
         upload_screenshot(before_file, "(before clicking send)")
 
+        # Click the REAL send button
         log("🤖 Clicking Veo 3 send button...")
         clicked = False
         for attempt in range(3):
@@ -105,9 +122,9 @@ async def generate_veo3_video(prompt):
                 if send_btn:
                     log(f"🖱 Hovering + clicking send button attempt {attempt+1}...")
                     await send_btn.hover()
+                    await asyncio.sleep(random.uniform(0.3, 1))
                     await send_btn.click(force=True)
                     await asyncio.sleep(2)
-                    # Double click if no response
                     if not (await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')")):
                         log("⚠️ No generating state, trying double click...")
                         await send_btn.dblclick()
