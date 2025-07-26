@@ -90,20 +90,44 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # HUMAN-LIKE INTERACTION: Tab + Enter
-        log("🤖 Acting human: Tab then Enter...")
-        try:
-            await page.keyboard.press("Tab")
-            await asyncio.sleep(0.5)
-            await page.keyboard.press("Enter")
-        except:
-            log("⚠️ Tab+Enter failed, trying Shift+Enter...")
-            await page.keyboard.press("Shift+Enter")
+        # Screenshot BEFORE clicking send
+        before_file = "veo3_before_click.png"
+        await page.screenshot(path=before_file)
+        upload_screenshot(before_file, "(before clicking send)")
 
-        # Screenshot after pressing Enter
-        screenshot_file = "veo3_after_click.png"
-        await page.screenshot(path=screenshot_file)
-        upload_screenshot(screenshot_file, "(after pressing Enter)")
+        # Try to click the paper-plane send button
+        log("🤖 Clicking Veo 3 send arrow...")
+        clicked = False
+        for attempt in range(5):
+            try:
+                send_btn = (
+                    await page.query_selector("button[aria-label='Send']") or
+                    await page.query_selector("button:has(svg)") or
+                    await page.query_selector("div[role='button']")
+                )
+                if send_btn:
+                    log(f"🖱 Clicking send button attempt {attempt+1}...")
+                    await send_btn.click(force=True)
+                    await asyncio.sleep(2)
+                    if await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')"):
+                        log("✅ Generating detected!")
+                        clicked = True
+                        break
+            except:
+                log(f"⚠️ Send button issue, retrying ({attempt+1}/5)")
+            await asyncio.sleep(1)
+
+        if not clicked:
+            log("⚠️ Send button might not have triggered, pressing Enter as backup...")
+            try:
+                await page.keyboard.press("Enter")
+            except:
+                log("⚠️ Backup Enter press failed.")
+
+        # Screenshot AFTER clicking send
+        after_file = "veo3_after_click.png"
+        await page.screenshot(path=after_file)
+        upload_screenshot(after_file, "(after clicking send)")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
@@ -116,7 +140,7 @@ async def generate_veo3_video(prompt):
 
         if not video_el:
             await browser.close()
-            raise Exception("❌ No video found after waiting. Check screenshot link above.")
+            raise Exception("❌ No video found after waiting. Check screenshots above.")
 
         video_url = await video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
