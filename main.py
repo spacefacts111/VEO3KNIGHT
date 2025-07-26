@@ -25,6 +25,8 @@ def upload_screenshot(file_path, label=""):
             link = r.text.strip()
             log(f"📸 Screenshot uploaded {label}: {link}")
             return link
+        else:
+            log(f"⚠️ Screenshot upload failed (status {r.status_code})")
     except Exception as e:
         log(f"⚠️ Screenshot upload failed: {e}")
     return None
@@ -90,20 +92,30 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Screenshot BEFORE clicking send
+        # Screenshot BEFORE clicking
         before_file = "veo3_before_click.png"
         await page.screenshot(path=before_file)
-        upload_screenshot(before_file, "(before clicking send)")
+        upload_screenshot(before_file, "(before clicking)")
 
-        # Try to click the paper-plane send button
-        log("🤖 Clicking Veo 3 send arrow...")
+        # Log all visible buttons
+        log("🔍 Checking all visible buttons...")
+        buttons = await page.query_selector_all("button")
+        for i, b in enumerate(buttons):
+            try:
+                text = (await b.inner_text()).strip()
+                label = await b.get_attribute("aria-label")
+                log(f"Button {i+1}: text='{text}' | aria-label='{label}'")
+            except:
+                pass
+
+        # Try clicking the send arrow
+        log("🤖 Trying to click the Veo 3 send arrow...")
         clicked = False
         for attempt in range(5):
             try:
                 send_btn = (
                     await page.query_selector("button[aria-label='Send']") or
-                    await page.query_selector("button:has(svg)") or
-                    await page.query_selector("div[role='button']")
+                    await page.query_selector("button:has(svg)")
                 )
                 if send_btn:
                     log(f"🖱 Clicking send button attempt {attempt+1}...")
@@ -113,8 +125,8 @@ async def generate_veo3_video(prompt):
                         log("✅ Generating detected!")
                         clicked = True
                         break
-            except:
-                log(f"⚠️ Send button issue, retrying ({attempt+1}/5)")
+            except Exception as e:
+                log(f"⚠️ Send button issue ({attempt+1}/5): {e}")
             await asyncio.sleep(1)
 
         if not clicked:
@@ -124,10 +136,10 @@ async def generate_veo3_video(prompt):
             except:
                 log("⚠️ Backup Enter press failed.")
 
-        # Screenshot AFTER clicking send
+        # Screenshot AFTER clicking
         after_file = "veo3_after_click.png"
         await page.screenshot(path=after_file)
-        upload_screenshot(after_file, "(after clicking send)")
+        upload_screenshot(after_file, "(after clicking)")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
