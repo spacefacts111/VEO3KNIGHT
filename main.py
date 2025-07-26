@@ -78,24 +78,36 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Smarter button logic with Playwright locator
+        # Smarter button logic: re-query until stable
         log("🤖 Trying to start video generation...")
-        try:
-            await page.locator("button:has-text('Submit')").first.wait_for(state="visible", timeout=3000)
-            log("🖱 Clicking the Submit button with locator...")
-            await page.locator("button:has-text('Submit')").first.click()
-        except:
+        clicked = False
+        for attempt in range(5):
             try:
-                log("⚠️ No stable Submit button, trying any visible button...")
-                await page.locator("button").first.wait_for(state="visible", timeout=3000)
-                await page.locator("button").first.click()
+                gen_btn = (
+                    await page.query_selector("button:has-text('Submit')") or
+                    await page.query_selector("div[role='button']") or
+                    await page.query_selector("button")
+                )
+                if gen_btn:
+                    log(f"🖱 Clicking button attempt {attempt+1}...")
+                    await gen_btn.click()
+                    clicked = True
+                    break
             except:
-                try:
-                    log("⚠️ No clickable button, trying Shift+Enter...")
-                    await page.keyboard.press("Shift+Enter")
-                except:
-                    log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
-                    await page.keyboard.press("Enter")
+                log(f"⚠️ Button detached, retrying... ({attempt+1}/5)")
+                await asyncio.sleep(1)
+
+        if not clicked:
+            try:
+                log("⚠️ No clickable button, trying Shift+Enter...")
+                await page.keyboard.press("Shift+Enter")
+            except:
+                log("⚠️ Shift+Enter failed, pressing Enter as last resort...")
+                await page.keyboard.press("Enter")
+
+        # Screenshot after clicking
+        await page.screenshot(path="veo3_after_click.png")
+        log("📸 Screenshot saved: veo3_after_click.png")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
@@ -108,7 +120,7 @@ async def generate_veo3_video(prompt):
 
         if not video_el:
             await browser.close()
-            raise Exception("❌ No video found after waiting.")
+            raise Exception("❌ No video found after waiting. Screenshot: veo3_after_click.png")
 
         video_url = await video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
