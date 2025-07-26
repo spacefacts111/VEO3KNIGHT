@@ -20,7 +20,7 @@ def log(msg):
 def upload_screenshot(file_path, label=""):
     try:
         with open(file_path, "rb") as f:
-            r = requests.post("https://uguu.se/api.php?d=upload-tool", files={"file": f})
+            r = requests.post("https://0x0.st", files={"file": f})
         if r.status_code == 200:
             link = r.text.strip()
             log(f"📸 Screenshot uploaded {label}: {link}")
@@ -95,28 +95,14 @@ async def generate_veo3_video(prompt):
         # Screenshot BEFORE clicking
         before_file = "veo3_before_click.png"
         await page.screenshot(path=before_file)
-        upload_screenshot(before_file, "(before clicking)")
+        upload_screenshot(before_file, "(before clicking send)")
 
-        # Log all visible buttons
-        log("🔍 Checking all visible buttons...")
-        buttons = await page.query_selector_all("button")
-        for i, b in enumerate(buttons):
-            try:
-                text = (await b.inner_text()).strip()
-                label = await b.get_attribute("aria-label")
-                log(f"Button {i+1}: text='{text}' | aria-label='{label}'")
-            except:
-                pass
-
-        # Try clicking the send arrow
-        log("🤖 Trying to click the Veo 3 send arrow...")
+        # Click the REAL send button (paper-plane)
+        log("🤖 Clicking Veo 3 send button...")
         clicked = False
         for attempt in range(5):
             try:
-                send_btn = (
-                    await page.query_selector("button[aria-label='Send']") or
-                    await page.query_selector("button:has(svg)")
-                )
+                send_btn = await page.query_selector("button[aria-label='Send message']")
                 if send_btn:
                     log(f"🖱 Clicking send button attempt {attempt+1}...")
                     await send_btn.click(force=True)
@@ -130,16 +116,12 @@ async def generate_veo3_video(prompt):
             await asyncio.sleep(1)
 
         if not clicked:
-            log("⚠️ Send button might not have triggered, pressing Enter as backup...")
-            try:
-                await page.keyboard.press("Enter")
-            except:
-                log("⚠️ Backup Enter press failed.")
+            log("⚠️ Send button might not have triggered, but continuing to wait anyway.")
 
         # Screenshot AFTER clicking
         after_file = "veo3_after_click.png"
         await page.screenshot(path=after_file)
-        upload_screenshot(after_file, "(after clicking)")
+        upload_screenshot(after_file, "(after clicking send)")
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
