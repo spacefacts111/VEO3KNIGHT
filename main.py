@@ -17,6 +17,18 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 def log(msg):
     print(f"{datetime.now().strftime('%H:%M:%S')} - {msg}", flush=True)
 
+def upload_screenshot(file_path):
+    try:
+        with open(file_path, "rb") as f:
+            r = requests.post("https://uguu.se/api.php?d=upload-tool", files={"file": f})
+        if r.status_code == 200:
+            link = r.text.strip()
+            log(f"📸 Screenshot uploaded: {link}")
+            return link
+    except Exception as e:
+        log(f"⚠️ Screenshot upload failed: {e}")
+    return None
+
 def generate_ai_caption():
     prompt = (
         "Write a short, hard-hitting, sad or metaphorical quote that feels viral and relatable. "
@@ -78,7 +90,7 @@ async def generate_veo3_video(prompt):
         await target.click()
         await target.type(prompt, delay=50)
 
-        # Smarter button logic with double click + wait for generating state
+        # Smarter button logic
         log("🤖 Trying to start video generation...")
         clicked = False
         for attempt in range(2):
@@ -91,8 +103,7 @@ async def generate_veo3_video(prompt):
                 if gen_btn:
                     log(f"🖱 Clicking button attempt {attempt+1}...")
                     await gen_btn.click()
-                    await asyncio.sleep(2)  # wait for UI update
-                    # Check if "Generating" appeared
+                    await asyncio.sleep(2)
                     if await page.query_selector("text=Generating") or await page.query_selector("div:has-text('Generating')"):
                         log("✅ Generating detected!")
                         clicked = True
@@ -110,8 +121,9 @@ async def generate_veo3_video(prompt):
                 await page.keyboard.press("Enter")
 
         # Screenshot after clicking
-        await page.screenshot(path="veo3_after_click.png")
-        log("📸 Screenshot saved: veo3_after_click.png")
+        screenshot_file = "veo3_after_click.png"
+        await page.screenshot(path=screenshot_file)
+        upload_screenshot(screenshot_file)
 
         # Wait for video
         log("⏳ Waiting for video generation (up to 5 min)...")
@@ -124,7 +136,7 @@ async def generate_veo3_video(prompt):
 
         if not video_el:
             await browser.close()
-            raise Exception("❌ No video found after waiting. Screenshot: veo3_after_click.png")
+            raise Exception("❌ No video found after waiting. Check screenshot link above.")
 
         video_url = await video_el.get_attribute("src")
         ext = ".mp4" if ".mp4" in video_url else ".webm"
